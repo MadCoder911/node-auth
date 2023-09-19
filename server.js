@@ -10,6 +10,7 @@ require("dotenv").config();
 const config = {
   CLIENT_ID: process.env.CLIENT_ID,
   CLIENT_SECRET: process.env.CLIENT_SECRET,
+  COOKIE_KEY: process.env.COOKIE_KEY,
 };
 const AUTH_OPTIONS = {
   callbackURL: "/auth/google/callback",
@@ -20,22 +21,41 @@ function verifyCallback(accessToken, refreshToken, profile, done) {
   console.log("Google profile", profile);
   done(null, profile);
 }
+
 passport.use(new Strategy(AUTH_OPTIONS, verifyCallback));
+
+// Save the session to the cookie
+passport.serializeUser((user, done) => {
+  done(null, user.id);
+});
+
+// Read the session from the cookie
+passport.deserializeUser((id, done) => {
+  // User.findById(id).then(user => {
+  //   done(null, user);
+  // });
+  done(null, id);
+});
 const app = express();
 app.use(helmet());
-//Initialize cookie seccion
+//Initialize cookie session middleware
 app.use(
   cookieSession({
     name: "session",
     maxAge: 24 * 60 * 60 * 1000,
-    keys: ["secret key for rotation", "secret key"],
+    keys: [config.COOKIE_KEY],
   })
 );
 //initializing passport middleware
 app.use(passport.initialize());
-
+//Authenticate session being sent to the server
+//Uses the keys and validates signature
+//set the value of the user property on the request object to user's identity
+//makes passport.deserialize call
+app.use(passport.session());
 function checkLoggedIn(req, res, next) {
-  const isLoggedIn = true;
+  const isLoggedIn = req.isAuthenticated() && req.user;
+
   if (!isLoggedIn) {
     return res.status(401).json({
       error: "You must log in!",
@@ -47,7 +67,7 @@ function checkLoggedIn(req, res, next) {
 app.get(
   "/auth/google",
   passport.authenticate("google", {
-    scope: ["email", "profile"],
+    scope: ["email"],
   })
 );
 app.get(
@@ -55,7 +75,7 @@ app.get(
   passport.authenticate("google", {
     failureRedirect: "/failure",
     successRedirect: "/",
-    session: false,
+    session: true,
   }),
   (req, res) => {
     console.log("Google called us back");
@@ -64,7 +84,10 @@ app.get(
 app.get("/failure", (req, res) => {
   return res.send("Failed to log in");
 });
-app.get("/auth/logout", (req, res) => {});
+app.get("/auth/logout", (req, res) => {
+  req.logout(); //removes req.user and terminates any sessions
+  return res.redirect("/");
+});
 
 app.get("/secret", checkLoggedIn, (req, res) => {
   return res.send("Secure key is 40");
@@ -81,5 +104,5 @@ https
     app
   )
   .listen(3000, () => {
-    console.log("Server started on port 4000");
+    console.log("Server started on port 3000");
   });
